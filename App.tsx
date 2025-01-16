@@ -1,8 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { GiftedChat, IMessage, InputToolbar, Composer } from 'react-native-gifted-chat';
-import { View, StyleSheet, TouchableOpacity, Text } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, Modal, Pressable } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import Modal from 'react-native-modal';
 import { Audio } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -189,9 +188,9 @@ export default function App() {
         containerStyle={styles.inputToolbar}
         renderComposer={(composerProps) => (
           <View style={styles.composerContainer}>
-            <TouchableOpacity style={styles.micButton} onPress={startRecording}>
+            <Pressable style={styles.micButton} onPress={startRecording}>
               <MaterialIcons name="mic" size={24} color="#007AFF" />
-            </TouchableOpacity>
+            </Pressable>
             <Composer 
               {...composerProps} 
               text={inputText}
@@ -252,21 +251,33 @@ export default function App() {
           renderInputToolbar={renderInputToolbar}
         />
         
-        <Modal isVisible={isModalVisible} style={styles.modal}>
-          <View style={styles.modalContent}>
-            <View style={styles.waveformContainer}>
-              {renderAudioWaveform()}
+        <Modal 
+          visible={isModalVisible} 
+          style={styles.modal}
+          animationType="slide"
+          transparent={true}
+          statusBarTranslucent={true}
+          hardwareAccelerated={true}
+          onRequestClose={() => {}}
+        >
+          <View 
+            style={[styles.modalOverlay, StyleSheet.absoluteFillObject]}
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.waveformContainer}>
+                {renderAudioWaveform()}
+              </View>
+              <Text style={styles.recordingTime}>{recordTime}</Text>
+              <Text style={styles.recordingModeText}>
+                {isRecording ? 'Đang ghi âm...' : 'Đã ghi âm'}
+              </Text>
+              <Pressable
+                style={styles.stopButton}
+                onPress={stopRecording}
+              >
+                <MaterialIcons name="check-circle" size={40} color="#007AFF" />
+              </Pressable>
             </View>
-            <Text style={styles.recordingTime}>{recordTime}</Text>
-            <Text style={styles.recordingModeText}>
-              {isRecording ? 'Đang ghi âm...' : 'Đã ghi âm'}
-            </Text>
-            <TouchableOpacity
-              style={styles.stopButton}
-              onPress={stopRecording}
-            >
-              <MaterialIcons name="check-circle" size={40} color="#007AFF" />
-            </TouchableOpacity>
           </View>
         </Modal>
       </SafeAreaView>
@@ -293,22 +304,37 @@ const styles = StyleSheet.create({
   },
   modal: {
     margin: 0,
+  },
+  modalOverlay: {
     justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
   },
   modalContent: {
     backgroundColor: 'white',
-    padding: 20,
+    paddingTop: 40,
+    paddingBottom: 40,
+    paddingHorizontal: 20,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    height: 300,
     alignItems: 'center',
+    width: '100%',
   },
   waveformContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     height: 100,
     width: '100%',
     marginBottom: 20,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 30,
+    overflow: 'hidden',
+    padding: 5,
   },
   bar: {
     width: 3,
