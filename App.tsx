@@ -6,8 +6,16 @@ import { Audio } from 'expo-av';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
+// Thay đổi interface AudioMessage
+type AudioMessage = IMessage & {
+  audioWaveform?: {
+    waveform: number[];
+    duration: string;
+  };
+};
+
 export default function App() {
-  const [messages, setMessages] = useState<IMessage[]>([]);
+  const [messages, setMessages] = useState<AudioMessage[]>([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -29,7 +37,7 @@ export default function App() {
 
   const onSend = useCallback((newMessages: IMessage[] = []) => {
     setMessages(previousMessages =>
-      GiftedChat.append(previousMessages, newMessages)
+      GiftedChat.append(previousMessages as AudioMessage[], newMessages as AudioMessage[])
     );
   }, []);
 
@@ -142,10 +150,23 @@ export default function App() {
       }
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
+      
+      onSend([{
+        _id: Math.random().toString(),
+        createdAt: new Date(),
+        user: { _id: 1 },
+        audio: uri || '', 
+        audioWaveform: {
+          waveform: recordedAudioData,
+          duration: recordTime
+        }
+      } as AudioMessage]);
+
       if (uri) {
         await convertAudioToText(uri);
       }
       setRecording(null);
+      setIsModalVisible(false);
     } catch (err) {
       console.error('Failed to stop recording', err);
     }
@@ -171,9 +192,9 @@ export default function App() {
 
       const data = await response.json();
       console.log(data);
-      if (data.transcript) {
-        setInputText(data.transcript);
-      }
+      // if (data.transcript) {
+      //   setInputText(data.transcript);
+      // }
     } catch (error) {
       console.error('Error converting audio to text:', error);
     } finally {
@@ -196,6 +217,26 @@ export default function App() {
               text={inputText}
               onTextChanged={text => setInputText(text)}
             />
+            <Pressable 
+              style={[styles.sendButton, !inputText && styles.sendButtonDisabled]} 
+              onPress={() => {
+                if (inputText.trim()) {
+                  onSend([{
+                    _id: Math.random().toString(),
+                    text: inputText,
+                    createdAt: new Date(),
+                    user: { _id: 1 }
+                  }]);
+                  setInputText('');
+                }
+              }}
+            >
+              <MaterialIcons 
+                name="send" 
+                size={24} 
+                color={inputText ? "#007AFF" : "#B8B8B8"} 
+              />
+            </Pressable>
           </View>
         )}
       />
@@ -241,6 +282,137 @@ export default function App() {
     });
   };
 
+  const AudioBubble = ({ message, position }: { message: AudioMessage, position: 'left' | 'right' }) => {
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState('00:00');
+    const [progress, setProgress] = useState(0);
+    const timerRef = useRef<NodeJS.Timeout | null>(null);
+    const soundRef = useRef<Audio.Sound | null>(null);
+
+    const startPlayback = async () => {
+      try {
+        if (soundRef.current) {
+          await soundRef.current.unloadAsync();
+        }
+
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: message.audio || '' },
+          { shouldPlay: true }
+        );
+        
+        soundRef.current = sound;
+        setIsPlaying(true);
+        setCurrentTime('00:00');
+        setProgress(0);
+        
+        let seconds = 0;
+        const totalSeconds = parseInt(message.audioWaveform?.duration?.split(':')[0] || '0') * 60 + 
+                            parseInt(message.audioWaveform?.duration?.split(':')[1] || '0');
+        
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded && status.positionMillis && status.durationMillis) {
+            const currentSeconds = Math.floor(status.positionMillis / 1000);
+            const minutes = Math.floor(currentSeconds / 60);
+            const remainingSeconds = currentSeconds % 60;
+            setCurrentTime(
+              `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`
+            );
+            setProgress(status.positionMillis / status.durationMillis);
+
+            if (status.didJustFinish) {
+              stopPlayback();
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Error playing sound:', error);
+      }
+    };
+
+    const stopPlayback = async () => {
+      if (soundRef.current) {
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setIsPlaying(false);
+      setProgress(0);
+    };
+
+    useEffect(() => {
+      return () => {
+        if (soundRef.current) {
+          soundRef.current.unloadAsync();
+        }
+        if (timerRef.current) {
+          clearInterval(timerRef.current);
+        }
+      };
+    }, []);
+
+    if (!message.audioWaveform) return null;
+
+    const isRight = position === 'right';
+    const activeColor = isRight ? '#FFFFFF' : '#007AFF';
+    const inactiveColor = isRight ? 'rgba(255,255,255,0.5)' : 'rgba(0,122,255,0.5)';
+
+    return (
+      <View style={[
+        styles.audioBubble,
+        isRight ? styles.bubbleRight : styles.bubbleLeft
+      ]}>
+        <View style={styles.audioControls}>
+          <TouchableOpacity 
+            onPress={isPlaying ? stopPlayback : startPlayback}
+            style={styles.playButton}
+          >
+            <MaterialIcons 
+              name={isPlaying ? "stop" : "play-arrow"} 
+              size={24} 
+              color={activeColor} 
+            />
+          </TouchableOpacity>
+          
+          <View style={styles.audioContent}>
+            <View style={styles.audioWaveformContainer}>
+              {message.audioWaveform.waveform
+                .filter((_, i) => i % 3 === 0)
+                .slice(0, 30)
+                .map((value, index) => {
+                  const height = Math.max(value * 40, 3);
+                  const isPlayed = (index / 30) <= progress;
+                  
+                  return (
+                    <View
+                      key={index}
+                      style={[
+                        styles.audioBar,
+                        {
+                          height,
+                          backgroundColor: isPlayed ? activeColor : inactiveColor
+                        }
+                      ]}
+                    />
+                  );
+                })}
+            </View>
+            
+            <Text style={[
+              styles.audioDuration,
+              isRight ? styles.audioTextRight : styles.audioTextLeft
+            ]}>
+              {isPlaying ? currentTime : message.audioWaveform.duration}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
@@ -249,6 +421,25 @@ export default function App() {
           onSend={messages => onSend(messages)}
           user={{ _id: 1 }}
           renderInputToolbar={renderInputToolbar}
+          renderBubble={(props) => {
+            const message = props.currentMessage as AudioMessage;
+            if (message.audioWaveform) {
+              return <AudioBubble message={message} position={props.position} />;
+            }
+            return (
+              <View style={[
+                styles.bubble,
+                props.position === 'right' ? styles.bubbleRight : styles.bubbleLeft
+              ]}>
+                <Text style={[
+                  styles.messageText,
+                  props.position === 'right' ? styles.messageTextRight : styles.messageTextLeft
+                ]}>
+                  {props.currentMessage?.text}
+                </Text>
+              </View>
+            );
+          }}
         />
         
         <Modal 
@@ -355,4 +546,87 @@ const styles = StyleSheet.create({
   stopButton: {
     padding: 15,
   },
+  sendButton: {
+    padding: 8,
+    marginLeft: 4,
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
+  },
+  bubble: {
+    maxWidth: '80%',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 20,
+    marginBottom: 5,
+  },
+  bubbleRight: {
+    backgroundColor: '#007AFF',
+    borderBottomRightRadius: 5,
+    marginLeft: 60,
+  },
+  bubbleLeft: {
+    backgroundColor: '#E8E8E8',
+    borderBottomLeftRadius: 5,
+    marginRight: 60,
+  },
+  messageText: {
+    fontSize: 16,
+  },
+  messageTextRight: {
+    color: '#FFFFFF',
+  },
+  messageTextLeft: {
+    color: '#000000',
+  },
+  audioBubble: {
+    width: "50%",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    // marginBottom: 5,
+  },
+  audioControls: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    width: '100%',
+  },
+  playButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+    marginTop: 4,
+
+  },
+  audioContent: {
+    flex: 1,
+    width: '100%',
+  },
+  audioWaveformContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 40,
+    marginTop: 4,
+    width: '100%',
+  },
+  audioBar: {
+    width: 2,
+    marginHorizontal: 1,
+    borderRadius: 1,
+  },
+  audioDuration: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  audioTextRight: {
+    color: '#FFFFFF',
+    textAlign: 'right',
+  },
+  audioTextLeft: {
+    color: '#666666',
+    textAlign: 'left',
+  }
 });
